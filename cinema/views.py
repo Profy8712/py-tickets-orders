@@ -1,11 +1,17 @@
 from rest_framework import viewsets, mixins
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action
-from rest_framework.response import Response
 from django.db.models import Count
+from django.db import transaction
 from datetime import datetime
+
 from cinema.models import (
-    Genre, Actor, CinemaHall, Movie, MovieSession, Order
+    Genre,
+    Actor,
+    CinemaHall,
+    Movie,
+    MovieSession,
+    Order,
+    Ticket
 )
 from cinema.serializers import (
     GenreSerializer,
@@ -89,12 +95,7 @@ class MovieSessionViewSet(viewsets.ModelViewSet):
         if movie_id:
             queryset = queryset.filter(movie_id=movie_id)
 
-        if self.action == "list":
-            queryset = queryset.annotate(
-                tickets_sold=Count("tickets")
-            ).select_related("movie", "cinema_hall")
-
-        return queryset
+        return queryset.select_related("movie", "cinema_hall")
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -102,21 +103,6 @@ class MovieSessionViewSet(viewsets.ModelViewSet):
         if self.action == "retrieve":
             return MovieSessionDetailSerializer
         return MovieSessionSerializer
-
-    def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            for data, session in zip(serializer.data, page):
-                data["tickets_available"] = (
-                        session.cinema_hall.capacity - session.tickets_sold
-                )
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
 
 
 class OrderViewSet(

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from cinema.models import Genre, Actor, CinemaHall, Movie, MovieSession, Order, Ticket
-
+from django.db import transaction
 
 class GenreSerializer(serializers.ModelSerializer):
     class Meta:
@@ -50,6 +50,10 @@ class MovieSessionSerializer(serializers.ModelSerializer):
         fields = ("id", "show_time", "movie", "cinema_hall")
 
 
+def get_tickets_available(obj):
+    return obj.cinema_hall.capacity - obj.tickets.count()
+
+
 class MovieSessionListSerializer(MovieSessionSerializer):
     movie_title = serializers.CharField(source="movie.title", read_only=True)
     cinema_hall_name = serializers.CharField(
@@ -58,7 +62,7 @@ class MovieSessionListSerializer(MovieSessionSerializer):
     cinema_hall_capacity = serializers.IntegerField(
         source="cinema_hall.capacity", read_only=True
     )
-    tickets_available = serializers.IntegerField(read_only=True)
+    tickets_available = serializers.SerializerMethodField()
 
     class Meta:
         model = MovieSession
@@ -141,6 +145,17 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         model = Order
         fields = ("tickets",)
 
+    def validate(self, attrs):
+        tickets_data = attrs.get("tickets", [])
+
+        # Validate all tickets before creating anything
+        for ticket_data in tickets_data:
+            ticket_serializer = TicketCreateSerializer(data=ticket_data)
+            ticket_serializer.is_valid(raise_exception=True)
+
+        return attrs
+
+    @transaction.atomic
     def create(self, validated_data):
         tickets_data = validated_data.pop("tickets")
         order = Order.objects.create(user=self.context["request"].user)
